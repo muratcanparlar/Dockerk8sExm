@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using PlatformService.Data;
 using PlatformService.Dtos;
 using PlatformService.Models;
+using PlatformService.SyncDataServices.Http;
 
 namespace PlatformService.Controllers
 {
@@ -12,11 +13,16 @@ namespace PlatformService.Controllers
     {
         private readonly IMapper _mapper;
         private readonly IPlatformRepo _platformRepo;
+        private readonly ICommandDataClient _commandDataClient;
 
-        public PlatformController(IPlatformRepo platformRepo, IMapper mapper)
+        public PlatformController(
+            IPlatformRepo platformRepo,
+            IMapper mapper,
+            ICommandDataClient commandDataClient)
         {
             _platformRepo = platformRepo;
             _mapper = mapper;
+            _commandDataClient = commandDataClient;
         }
         [HttpGet]
         public ActionResult<IEnumerable<Platform>> Get()
@@ -31,10 +37,20 @@ namespace PlatformService.Controllers
             return Ok(_mapper.Map<PlatformReadDto>(platform));
         }
         [HttpPost]
-        public ActionResult<IEnumerable<Platform>> Create(Platform platform)
+        public async Task<ActionResult<IEnumerable<Platform>>> Create(PlatformCreateDto  platformCreateDto)
         {
-            _platformRepo.CreatePlatform(platform);
+            var platformModel=_mapper.Map<Platform>(platformCreateDto);  
+            _platformRepo.CreatePlatform(platformModel);
             var result=_platformRepo.SaveChanges();
+            var platFormReadDto=_mapper.Map<PlatformReadDto>(platformModel);
+            try
+            {
+                await _commandDataClient.SendPlatformToCommand(platFormReadDto);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"-->Could not Send syncrously {ex.Message}");
+            }
             return result ? (ActionResult<IEnumerable<Platform>>)Ok() : (ActionResult<IEnumerable<Platform>>)BadRequest();
         }
 
