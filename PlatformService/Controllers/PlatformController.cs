@@ -1,5 +1,6 @@
 ﻿using AutoMapper;
 using Microsoft.AspNetCore.Mvc;
+using PlatformService.AsyncDataServices;
 using PlatformService.Data;
 using PlatformService.Dtos;
 using PlatformService.Models;
@@ -14,15 +15,18 @@ namespace PlatformService.Controllers
         private readonly IMapper _mapper;
         private readonly IPlatformRepo _platformRepo;
         private readonly ICommandDataClient _commandDataClient;
+        private readonly IMessageBusClient _messageBusClient;
 
         public PlatformController(
             IPlatformRepo platformRepo,
             IMapper mapper,
-            ICommandDataClient commandDataClient)
+            ICommandDataClient commandDataClient,
+            IMessageBusClient messageBusClient)
         {
             _platformRepo = platformRepo;
             _mapper = mapper;
             _commandDataClient = commandDataClient;
+            _messageBusClient = messageBusClient;
         }
         [HttpGet]
         public ActionResult<IEnumerable<Platform>> Get()
@@ -43,6 +47,7 @@ namespace PlatformService.Controllers
             _platformRepo.CreatePlatform(platformModel);
             var result=_platformRepo.SaveChanges();
             var platFormReadDto=_mapper.Map<PlatformReadDto>(platformModel);
+            //send sync message
             try
             {
                 await _commandDataClient.SendPlatformToCommand(platFormReadDto);
@@ -50,6 +55,19 @@ namespace PlatformService.Controllers
             catch (Exception ex)
             {
                 Console.WriteLine($"-->Could not Send syncrously {ex.Message}");
+            }
+
+            //send async message
+            try
+            {
+                var platformPublishDto=_mapper.Map<PlatformPublishedDto>(platFormReadDto);
+                platformPublishDto.Event = "Platform_Published";
+                _messageBusClient.PublishNewPlatform(platformPublishDto);
+            }
+            catch (Exception ex)
+            {
+
+                Console.WriteLine($"-->Could not Send asyncrously {ex.Message}");
             }
             return result ? (ActionResult<IEnumerable<Platform>>)Ok() : (ActionResult<IEnumerable<Platform>>)BadRequest();
         }
